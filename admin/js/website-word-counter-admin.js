@@ -18,6 +18,8 @@
             nonce: WebsiteWordCounter.nonce,
         })
             .done(function (res) {
+                console.log("AJAX Response:", res);
+
                 if (
                     res.success &&
                     res.data &&
@@ -52,14 +54,33 @@
                             }
                         }
                         $breakdown.html(html);
+                    } else {
+                        // Clear table if no breakdown data
+                        $breakdown.html(
+                            "<tr><td colspan='2'>No data available</td></tr>"
+                        );
                     }
                 } else {
-                    console.error("Error:", res);
+                    console.error("Error in response:", res);
+                    alert(
+                        "Error: " +
+                            (res.data && res.data.message
+                                ? res.data.message
+                                : "Unknown error occurred")
+                    );
                 }
             })
-            .fail(function (xhr) {
-                console.error("AJAX error:", xhr);
-                alert("Error calculating word count. Please try again.");
+            .fail(function (xhr, status, error) {
+                console.error("AJAX error:", {
+                    status: status,
+                    error: error,
+                    responseText: xhr.responseText,
+                });
+                alert(
+                    "Error calculating word count: " +
+                        error +
+                        ". Please check the browser console for details."
+                );
             })
             .always(function () {
                 // Re-enable button
