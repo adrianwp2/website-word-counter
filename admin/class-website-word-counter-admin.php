@@ -191,6 +191,9 @@ class Website_Word_Counter_Admin {
 
 		check_ajax_referer( 'website_word_counter_nonce', 'nonce' );
 	
+		// Delete old transient to force refresh
+		delete_transient( $this->transient_key );
+		
 		$data = $this->calculate_total_words();
 		
 		// Save to transient (expires in 12 hours)
@@ -254,6 +257,14 @@ class Website_Word_Counter_Admin {
 			// Combine title and content
 			$content = $post->post_title . ' ' . $post->post_content;
 
+			// Add ACF fields content if ACF is available
+			if ( function_exists( 'get_fields' ) ) {
+				$acf_content = $this->get_acf_fields_content( $post_id );
+				if ( ! empty( $acf_content ) ) {
+					$content .= ' ' . $acf_content;
+				}
+			}
+
 			// Strip HTML tags and decode entities
 			$content = wp_strip_all_tags( $content );
 			$content = html_entity_decode( $content, ENT_QUOTES, 'UTF-8' );
@@ -279,5 +290,135 @@ class Website_Word_Counter_Admin {
 			'total' => $total_words,
 			'by_post_type' => $by_post_type,
 		);
+	}
+
+	/**
+	 * Get text content from all ACF fields for a post.
+	 *
+	 * @since    1.0.0
+	 * @access   private
+	 * @param    int    $post_id    The post ID.
+	 * @return   string    Combined text content from all ACF fields.
+	 */
+	private function get_acf_fields_content( $post_id ) {
+		if ( ! function_exists( 'get_fields' ) ) {
+			return '';
+		}
+
+		$fields = get_fields( $post_id );
+		if ( ! $fields || ! is_array( $fields ) ) {
+			return '';
+		}
+
+		$content_parts = array();
+		$this->extract_acf_text_content( $fields, $content_parts );
+
+		return implode( ' ', $content_parts );
+	}
+
+	/**
+	 * Recursively extract text content from ACF fields.
+	 *
+	 * @since    1.0.0
+	 * @access   private
+	 * @param    array    $fields         ACF fields array.
+	 * @param    array    $content_parts  Array to store extracted text content.
+	 */
+	private function extract_acf_text_content( $fields, &$content_parts ) {
+		if ( ! is_array( $fields ) ) {
+			return;
+		}
+
+		foreach ( $fields as $field_name => $field_value ) {
+			if ( empty( $field_value ) && $field_value !== '0' && $field_value !== 0 ) {
+				continue;
+			}
+
+			// Try to get field object to check field type
+			$field_type = '';
+			if ( function_exists( 'get_field_object' ) ) {
+				$field_object = get_field_object( $field_name );
+				if ( $field_object && isset( $field_object['type'] ) ) {
+					$field_type = $field_object['type'];
+				}
+			}
+
+			// Handle different field types
+			switch ( $field_type ) {
+				case 'text':
+				case 'textarea':
+				case 'wysiwyg':
+				case 'email':
+				case 'url':
+					// Simple text fields
+					if ( is_string( $field_value ) ) {
+						$content_parts[] = $field_value;
+					}
+					break;
+
+				case 'repeater':
+					// Repeater fields - iterate through rows
+					if ( is_array( $field_value ) ) {
+						foreach ( $field_value as $row ) {
+							if ( is_array( $row ) ) {
+								$this->extract_acf_text_content( $row, $content_parts );
+							} elseif ( is_string( $row ) ) {
+								$content_parts[] = $row;
+							}
+						}
+					}
+					break;
+
+				case 'group':
+					// Group fields - recursively extract
+					if ( is_array( $field_value ) ) {
+						$this->extract_acf_text_content( $field_value, $content_parts );
+					}
+					break;
+
+				case 'flexible_content':
+					// Flexible content fields
+					if ( is_array( $field_value ) ) {
+						foreach ( $field_value as $layout ) {
+							if ( is_array( $layout ) ) {
+								// Skip 'acf_fc_layout' key and extract other fields
+								foreach ( $layout as $layout_key => $layout_value ) {
+									if ( $layout_key !== 'acf_fc_layout' && is_array( $layout_value ) ) {
+										$this->extract_acf_text_content( array( $layout_key => $layout_value ), $content_parts );
+									} elseif ( $layout_key !== 'acf_fc_layout' && is_string( $layout_value ) ) {
+										$content_parts[] = $layout_value;
+									}
+								}
+							}
+						}
+					}
+					break;
+
+				default:
+					// For unknown field types or when field type can't be determined
+					// Try to extract text based on value type
+					if ( is_string( $field_value ) ) {
+						$content_parts[] = $field_value;
+					} elseif ( is_array( $field_value ) ) {
+						// Check if it's a numeric array (likely repeater rows) or associative (likely group/nested)
+						$is_numeric_array = array_keys( $field_value ) === range( 0, count( $field_value ) - 1 );
+						
+						if ( $is_numeric_array ) {
+							// Likely a repeater - process each row
+							foreach ( $field_value as $row ) {
+								if ( is_array( $row ) ) {
+									$this->extract_acf_text_content( $row, $content_parts );
+								} elseif ( is_string( $row ) ) {
+									$content_parts[] = $row;
+								}
+							}
+						} else {
+							// Likely a group or nested fields - recursively extract
+							$this->extract_acf_text_content( $field_value, $content_parts );
+						}
+					}
+					break;
+			}
+		}
 	}
 }
