@@ -1,0 +1,18 @@
+{
+    "name": "cwp/website-word-counter",
+    "description": "Simple word counter",
+    "require": {
+        "smalot/pdfparser": "^2.12"
+    },
+    "autoload": {
+        "psr-4": {
+            "Cwp\\WebsiteWordCounter\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "adrianwp2",
+            "email": "85935522+adrianwp2@users.noreply.github.com"
+        }
+    ]
+}

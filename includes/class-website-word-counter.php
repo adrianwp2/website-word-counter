@@ -126,6 +126,9 @@ class Website_Word_Counter {
 		$this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts' );
 		$this->loader->add_action( 'admin_menu', $plugin_admin, 'register_menu_page' );
 		$this->loader->add_action( 'wp_ajax_website_word_counter_refresh', $plugin_admin, 'ajax_refresh_count' );
+		$this->loader->add_action( 'wp_ajax_website_word_counter_get_pdf_list', $plugin_admin, 'ajax_get_pdf_list' );
+		$this->loader->add_action( 'wp_ajax_website_word_counter_process_pdf_batch', $plugin_admin, 'ajax_process_pdf_batch' );
+		$this->loader->add_action( 'wp_ajax_website_word_counter_save_pdf_count', $plugin_admin, 'ajax_save_pdf_count' );
 
 	}
 

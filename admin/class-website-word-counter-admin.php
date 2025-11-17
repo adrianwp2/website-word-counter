@@ -46,6 +46,15 @@ class Website_Word_Counter_Admin {
 	private $transient_key = 'website_word_counter_total';
 
 	/**
+	 * Transient key for storing PDF word count.
+	 *
+	 * @since    1.0.0
+	 * @access   private
+	 * @var      string    $pdf_transient_key    The PDF transient key name.
+	 */
+	private $pdf_transient_key = 'website_word_counter_pdf_total';
+
+	/**
 	 * Initialize the class and set its properties.
 	 *
 	 * @since    1.0.0
@@ -143,6 +152,21 @@ class Website_Word_Counter_Admin {
 			echo '</p>';
 		}
 		
+		// Combined Total (Content + PDFs)
+		$cached_pdf_count = get_transient( $this->pdf_transient_key );
+		$content_total = ( false !== $cached_data && is_array( $cached_data ) && isset( $cached_data['total'] ) ) ? $cached_data['total'] : 0;
+		$pdf_total = ( false !== $cached_pdf_count ) ? $cached_pdf_count : 0;
+		$combined_total = $content_total + $pdf_total;
+		
+		echo '<h2 class="word-count-display">';
+		echo '<strong>' . __('Total Words (Content + PDFs):', 'website-word-counter') . '</strong> ';
+		if ( $combined_total > 0 || ( $content_total > 0 || $pdf_total > 0 ) ) {
+			echo '<span id="wwc-combined-count">' . number_format( $combined_total ) . '</span>';
+		} else {
+			echo '<span id="wwc-combined-count">' . __('Not calculated yet', 'website-word-counter') . '</span>';
+		}
+		echo '</h2>';
+		
 		// Always show the breakdown table structure
 		echo '<hr>';
 		echo '<h2>' . __('Words by Post Type', 'website-word-counter') . '</h2>';
@@ -174,6 +198,29 @@ class Website_Word_Counter_Admin {
 		echo '</tbody></table>';
 		
 		echo '<button id="wwc-refresh" class="button button-primary">' . __('Refresh Count', 'website-word-counter') . '</button>';
+		echo '</div>';
+		
+		// PDF Attachments Section
+		echo '<hr>';
+		echo '<h2>' . __('PDF Attachments', 'website-word-counter') . '</h2>';
+		echo '<div id="website-word-counter-pdf-words">';
+		
+		$cached_pdf_count = get_transient( $this->pdf_transient_key );
+		
+		if ( false !== $cached_pdf_count ) {
+			echo '<p class="word-count-display">';
+			echo '<strong>' . __('PDF Words:', 'website-word-counter') . '</strong> ';
+			echo '<span id="wwc-pdf-count">' . number_format( $cached_pdf_count ) . '</span>';
+			echo '</p>';
+		} else {
+			echo '<p class="word-count-display">';
+			echo '<strong>' . __('PDF Words:', 'website-word-counter') . '</strong> ';
+			echo '<span id="wwc-pdf-count">' . __('Not calculated yet', 'website-word-counter') . '</span>';
+			echo '</p>';
+		}
+		
+		echo '<button id="wwc-refresh-pdf" class="button button-primary">' . __('Refresh PDF Count', 'website-word-counter') . '</button>';
+		echo '<p class="description">' . __('PDF processing may take longer and is done separately to avoid memory issues.', 'website-word-counter') . '</p>';
 		echo '</div>';
 	}
 
@@ -213,6 +260,82 @@ class Website_Word_Counter_Admin {
 		wp_send_json_success( array( 
 			'total_words' => $data['total'],
 			'by_post_type' => $by_post_type_with_labels
+		) );
+	}
+
+	/**
+	 * Handle AJAX request to get list of PDF attachments.
+	 *
+	 * @since    1.0.0
+	 */
+	public function ajax_get_pdf_list() {
+		// Security checks: only allow in admin and for users with proper capabilities
+		if ( ! is_admin() || ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Unauthorized access.', 'website-word-counter' ) ) );
+			return;
+		}
+
+		check_ajax_referer( 'website_word_counter_nonce', 'nonce' );
+	
+		$pdf_list = $this->get_pdf_attachments_list();
+		
+		wp_send_json_success( array( 
+			'pdf_list' => $pdf_list,
+			'total' => count( $pdf_list )
+		) );
+	}
+
+	/**
+	 * Handle AJAX request to process a batch of PDFs.
+	 *
+	 * @since    1.0.0
+	 */
+	public function ajax_process_pdf_batch() {
+		// Security checks: only allow in admin and for users with proper capabilities
+		if ( ! is_admin() || ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Unauthorized access.', 'website-word-counter' ) ) );
+			return;
+		}
+
+		check_ajax_referer( 'website_word_counter_nonce', 'nonce' );
+	
+		$pdf_ids = isset( $_POST['pdf_ids'] ) ? array_map( 'intval', $_POST['pdf_ids'] ) : array();
+		
+		if ( empty( $pdf_ids ) ) {
+			wp_send_json_error( array( 'message' => __( 'No PDF IDs provided.', 'website-word-counter' ) ) );
+			return;
+		}
+		
+		$batch_words = $this->process_pdf_batch( $pdf_ids );
+		
+		wp_send_json_success( array( 
+			'batch_words' => $batch_words,
+			'processed' => count( $pdf_ids )
+		) );
+	}
+
+	/**
+	 * Handle AJAX request to save final PDF word count.
+	 *
+	 * @since    1.0.0
+	 */
+	public function ajax_save_pdf_count() {
+		// Security checks: only allow in admin and for users with proper capabilities
+		if ( ! is_admin() || ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Unauthorized access.', 'website-word-counter' ) ) );
+			return;
+		}
+
+		check_ajax_referer( 'website_word_counter_nonce', 'nonce' );
+	
+		$total_words = isset( $_POST['total_words'] ) ? intval( $_POST['total_words'] ) : 0;
+		
+		// Save to transient (expires in 12 hours)
+		set_transient( $this->pdf_transient_key, $total_words, 12 * HOUR_IN_SECONDS );
+		
+		wp_send_json_success( array( 
+			'pdf_words' => $total_words,
+			'message' => __( 'PDF word count saved successfully.', 'website-word-counter' )
 		) );
 	}
 
@@ -420,5 +543,277 @@ class Website_Word_Counter_Admin {
 					break;
 			}
 		}
+	}
+
+	/**
+	 * Get list of PDF attachment IDs from the media library.
+	 *
+	 * @since    1.0.0
+	 * @access   private
+	 * @return   array    Array of PDF attachment IDs.
+	 */
+	private function get_pdf_attachments_list() {
+		$pdf_attachments = array();
+
+		// Get all PDF attachments - try multiple query methods
+		$args = array(
+			'post_type'      => 'attachment',
+			'post_mime_type' => 'application/pdf',
+			'post_status'    => 'any',
+			'posts_per_page' => -1,
+			'fields'         => 'ids',
+		);
+
+		$pdf_attachments = get_posts( $args );
+		
+		// If no results with mime type, try querying by file extension
+		if ( empty( $pdf_attachments ) ) {
+			$args = array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'any',
+				'posts_per_page' => -1,
+				'fields'         => 'ids',
+			);
+			
+			$all_attachments = get_posts( $args );
+			
+			// Filter for PDFs by checking file extension
+			foreach ( $all_attachments as $attachment_id ) {
+				$file_path = get_attached_file( $attachment_id );
+				if ( $file_path && strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) ) === 'pdf' ) {
+					$pdf_attachments[] = $attachment_id;
+				}
+			}
+		}
+
+		return $pdf_attachments;
+	}
+
+	/**
+	 * Process a batch of PDF attachments and return word count.
+	 *
+	 * @since    1.0.0
+	 * @access   private
+	 * @param    array    $pdf_ids    Array of PDF attachment IDs to process.
+	 * @return   int    Total word count from the batch.
+	 */
+	private function process_pdf_batch( $pdf_ids ) {
+		$total_words = 0;
+
+		// Check if PDF parser is available
+		if ( ! class_exists( '\Smalot\PdfParser\Parser' ) ) {
+			return $total_words;
+		}
+
+		foreach ( $pdf_ids as $attachment_id ) {
+			$file_path = null;
+			$pdf_text = null;
+			$word_count = 0;
+			
+			try {
+				$file_path = get_attached_file( $attachment_id );
+				
+				if ( ! $file_path || ! file_exists( $file_path ) ) {
+					continue;
+				}
+
+				// Double-check it's a PDF by extension
+				if ( strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) ) !== 'pdf' ) {
+					continue;
+				}
+
+				// Process PDF and extract text
+				$pdf_text = $this->extract_text_from_pdf( $file_path );
+				
+				if ( ! empty( $pdf_text ) ) {
+					// Strip HTML and decode entities
+					$pdf_text = wp_strip_all_tags( $pdf_text );
+					$pdf_text = html_entity_decode( $pdf_text, ENT_QUOTES, 'UTF-8' );
+					$pdf_text = trim( $pdf_text );
+					
+					if ( ! empty( $pdf_text ) ) {
+						$word_count = str_word_count( $pdf_text, 0, '0123456789' );
+						$total_words += $word_count;
+					}
+				}
+			} catch ( Exception $e ) {
+				error_log( 'Website Word Counter - Error processing PDF ID ' . $attachment_id . ': ' . $e->getMessage() );
+			} catch ( Error $e ) {
+				error_log( 'Website Word Counter - Fatal error processing PDF ID ' . $attachment_id . ': ' . $e->getMessage() );
+			}
+			
+			// Free memory after each PDF
+			unset( $pdf_text, $word_count, $file_path );
+		}
+
+		// Force garbage collection after batch
+		if ( function_exists( 'gc_collect_cycles' ) ) {
+			gc_collect_cycles();
+		}
+
+		return $total_words;
+	}
+
+	/**
+	 * Get word count from all PDF attachments in the media library.
+	 * DEPRECATED: Use process_pdf_batch() instead for better memory management.
+	 *
+	 * @since    1.0.0
+	 * @access   private
+	 * @return   int    Total word count from all PDFs.
+	 */
+	private function get_pdf_attachments_word_count() {
+		$total_words = 0;
+
+		// Check if PDF parser is available
+		if ( ! class_exists( '\Smalot\PdfParser\Parser' ) ) {
+			error_log( 'Website Word Counter - PDF parser class not found' );
+			return $total_words;
+		}
+
+		// Get all PDF attachments - try multiple query methods
+		$args = array(
+			'post_type'      => 'attachment',
+			'post_mime_type' => 'application/pdf',
+			'post_status'    => 'any', // Changed from 'inherit' to 'any' to catch all
+			'posts_per_page' => -1,
+			'fields'         => 'ids',
+		);
+
+		$pdf_attachments = get_posts( $args );
+		
+		// If no results with mime type, try querying by file extension
+		if ( empty( $pdf_attachments ) ) {
+			$args = array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'any',
+				'posts_per_page' => -1,
+				'fields'         => 'ids',
+			);
+			
+			$all_attachments = get_posts( $args );
+			
+			// Filter for PDFs by checking file extension
+			foreach ( $all_attachments as $attachment_id ) {
+				$file_path = get_attached_file( $attachment_id );
+				if ( $file_path && strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) ) === 'pdf' ) {
+					$pdf_attachments[] = $attachment_id;
+				}
+			}
+		}
+
+		error_log( 'Website Word Counter - Found ' . count( $pdf_attachments ) . ' PDF attachments' );
+
+		$processed_count = 0;
+		foreach ( $pdf_attachments as $attachment_id ) {
+			$processed_count++;
+			$file_path = null;
+			$pdf_text = null;
+			$word_count = 0;
+			
+			try {
+				$file_path = get_attached_file( $attachment_id );
+				
+				if ( ! $file_path ) {
+					error_log( 'Website Word Counter - No file path for attachment ID: ' . $attachment_id );
+					continue;
+				}
+				
+				if ( ! file_exists( $file_path ) ) {
+					error_log( 'Website Word Counter - File does not exist: ' . $file_path );
+					continue;
+				}
+
+				// Double-check it's a PDF by extension
+				if ( strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) ) !== 'pdf' ) {
+					continue;
+				}
+
+				// Process PDF and extract text
+				$pdf_text = $this->extract_text_from_pdf( $file_path );
+				
+				if ( ! empty( $pdf_text ) ) {
+					// Strip HTML and decode entities
+					$pdf_text = wp_strip_all_tags( $pdf_text );
+					$pdf_text = html_entity_decode( $pdf_text, ENT_QUOTES, 'UTF-8' );
+					$pdf_text = trim( $pdf_text );
+					
+					if ( ! empty( $pdf_text ) ) {
+						$word_count = str_word_count( $pdf_text, 0, '0123456789' );
+						$total_words += $word_count;
+						error_log( 'Website Word Counter - [' . $processed_count . '/' . count( $pdf_attachments ) . '] Extracted ' . $word_count . ' words from: ' . basename( $file_path ) );
+					} else {
+						error_log( 'Website Word Counter - [' . $processed_count . '/' . count( $pdf_attachments ) . '] No text extracted from: ' . basename( $file_path ) );
+					}
+				} else {
+					error_log( 'Website Word Counter - [' . $processed_count . '/' . count( $pdf_attachments ) . '] Empty text from PDF: ' . basename( $file_path ) );
+				}
+			} catch ( Exception $e ) {
+				error_log( 'Website Word Counter - Error processing PDF ' . basename( $file_path ) . ': ' . $e->getMessage() );
+			} catch ( Error $e ) {
+				error_log( 'Website Word Counter - Fatal error processing PDF ' . basename( $file_path ) . ': ' . $e->getMessage() );
+			}
+			
+			// Free memory after each PDF
+			unset( $pdf_text, $word_count, $file_path );
+			
+			// Force garbage collection every 10 PDFs to help with memory
+			if ( $processed_count % 10 === 0 ) {
+				if ( function_exists( 'gc_collect_cycles' ) ) {
+					gc_collect_cycles();
+				}
+				error_log( 'Website Word Counter - Processed ' . $processed_count . ' PDFs, memory usage: ' . round( memory_get_usage() / 1024 / 1024, 2 ) . ' MB' );
+			}
+		}
+
+		// Final cleanup
+		unset( $pdf_attachments );
+		if ( function_exists( 'gc_collect_cycles' ) ) {
+			gc_collect_cycles();
+		}
+
+		error_log( 'Website Word Counter - Total PDF words: ' . $total_words . ' from ' . $processed_count . ' PDFs' );
+		return $total_words;
+	}
+
+	/**
+	 * Extract text from a PDF file using Smalot\PdfParser.
+	 *
+	 * @since    1.0.0
+	 * @access   private
+	 * @param    string    $file_path    Path to the PDF file.
+	 * @return   string    Extracted text from PDF.
+	 */
+	private function extract_text_from_pdf( $file_path ) {
+		$text = '';
+
+		if ( ! class_exists( '\Smalot\PdfParser\Parser' ) ) {
+			return $text;
+		}
+
+		$parser = null;
+		$pdf = null;
+
+		try {
+			$parser = new \Smalot\PdfParser\Parser();
+			$pdf = $parser->parseFile( $file_path );
+			$text = $pdf->getText();
+			
+			// Free memory immediately after extracting text
+			unset( $pdf );
+			unset( $parser );
+		} catch ( Exception $e ) {
+			// Log error but continue processing other PDFs
+			error_log( 'Website Word Counter - PDF parsing error for ' . basename( $file_path ) . ': ' . $e->getMessage() );
+		} catch ( Error $e ) {
+			// Catch fatal errors too
+			error_log( 'Website Word Counter - PDF parsing fatal error for ' . basename( $file_path ) . ': ' . $e->getMessage() );
+		} finally {
+			// Ensure cleanup even if exception occurs
+			unset( $pdf );
+			unset( $parser );
+		}
+
+		return $text;
 	}
 }
