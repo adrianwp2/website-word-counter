@@ -13,12 +13,8 @@
 /**
  * The admin-specific functionality of the plugin.
  *
- * Defines the plugin name, version, and two examples hooks for how to
- * enqueue the admin-specific stylesheet and JavaScript.
- *
  * @package    Website_Word_Counter
  * @subpackage Website_Word_Counter/admin
- * @author     CustomWP <adrian@customwp.io>
  */
 class Website_Word_Counter_Admin {
 
@@ -69,21 +65,11 @@ class Website_Word_Counter_Admin {
 	 * @since    1.0.0
 	 */
 	public function enqueue_styles() {
-
-		/**
-		 * This function is provided for demonstration purposes only.
-		 *
-		 * An instance of this class should be passed to the run() function
-		 * defined in Website_Word_Counter_Loader as all of the hooks are defined
-		 * in that particular class.
-		 *
-		 * The Website_Word_Counter_Loader will then create the relationship
-		 * between the defined hooks and the functions defined in this
-		 * class.
-		 */
+		if ( ! is_admin() ) {
+			return;
+		}
 
 		wp_enqueue_style( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'css/website-word-counter-admin.css', array(), $this->version, 'all' );
-
 	}
 
 	/**
@@ -92,18 +78,9 @@ class Website_Word_Counter_Admin {
 	 * @since    1.0.0
 	 */
 	public function enqueue_scripts() {
-
-		/**
-		 * This function is provided for demonstration purposes only.
-		 *
-		 * An instance of this class should be passed to the run() function
-		 * defined in Website_Word_Counter_Loader as all of the hooks are defined
-		 * in that particular class.
-		 *
-		 * The Website_Word_Counter_Loader will then create the relationship
-		 * between the defined hooks and the functions defined in this
-		 * class.
-		 */
+		if ( ! is_admin() ) {
+			return;
+		}
 
 		wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'js/website-word-counter-admin.js', array( 'jquery' ), $this->version, false );
 
@@ -117,7 +94,16 @@ class Website_Word_Counter_Admin {
 		);
 	}
 
+	/**
+	 * Register the admin menu page.
+	 *
+	 * @since    1.0.0
+	 */
 	public function register_menu_page() {
+		if ( ! is_admin() ) {
+			return;
+		}
+
 		add_menu_page(
 			__('Website Word Counter', 'website-word-counter'),
 			__('Website Word Counter', 'website-word-counter'),
@@ -129,6 +115,11 @@ class Website_Word_Counter_Admin {
 		);
 	}
 
+	/**
+	 * Render the admin settings page.
+	 *
+	 * @since    1.0.0
+	 */
 	public function render_admin_page() {
 		// Get cached word count from transient
 		$cached_data = get_transient( $this->transient_key );
@@ -186,7 +177,18 @@ class Website_Word_Counter_Admin {
 		echo '</div>';
 	}
 
+	/**
+	 * Handle AJAX request to refresh word count.
+	 *
+	 * @since    1.0.0
+	 */
 	public function ajax_refresh_count() {
+		// Security checks: only allow in admin and for users with proper capabilities
+		if ( ! is_admin() || ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Unauthorized access.', 'website-word-counter' ) ) );
+			return;
+		}
+
 		check_ajax_referer( 'website_word_counter_nonce', 'nonce' );
 	
 		$data = $this->calculate_total_words();
@@ -219,6 +221,14 @@ class Website_Word_Counter_Admin {
 	 * @return   array    Array with 'total' and 'by_post_type' keys.
 	 */
 	private function calculate_total_words() {
+		// Additional security check - only run in admin context
+		if ( ! is_admin() ) {
+			return array(
+				'total' => 0,
+				'by_post_type' => array(),
+			);
+		}
+
 		$total_words = 0;
 		$by_post_type = array();
 
