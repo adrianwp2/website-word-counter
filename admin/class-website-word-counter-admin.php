@@ -88,7 +88,7 @@ class Website_Word_Counter_Admin {
 			$this->plugin_name,
 			'WebsiteWordCounter',
 			array(
-				'ajax_url' => admin_url( 'admin-ajax.php', 'http' ),
+				'ajax_url' => admin_url( 'admin-ajax.php' ),
 				'nonce' => wp_create_nonce( 'website_word_counter_nonce' ),
 			)
 		);
